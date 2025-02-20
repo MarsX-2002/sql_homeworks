@@ -66,7 +66,7 @@ VALUES
 
 
 
-/* Task 1: Employee Salary Report */
+/* ?(do with subquery) Task 1: Employee Salary Report */
 select emp.*,
 	AVG(emp.Salary) OVER (PARTITION BY emp.Department) as AverageSalary,
 	CASE	
@@ -89,7 +89,7 @@ select
 	case 
 		when o.Status in ('Delivered', 'Shipped') then 'Completed'
 		when o.Status = 'Pending' then 'Pending'
-		when o.Status = 'Canceled' then 'Canceled'
+		when o.Status = 'Cancelled' then 'Cancelled'
 		else 'Unknown'
 	end as OrderStatus,
 	count(*) as TotalOrders,
@@ -100,17 +100,17 @@ group by
 	case 
 		when o.Status in ('Delivered', 'Shipped') then 'Completed'
 		when o.Status = 'Pending' then 'Pending'
-		when o.Status = 'Canceled' then 'Canceled'
+		when o.Status = 'Cancelled' then 'Cancelled'
 		else 'Unknown'
 	end
 having sum(o.TotalAmount) > 5000
 order by TotalRevenue desc;
 
 /* Task 3: Product Inventory Check */
-select distinct Category, 
-	max(Price) as MaxPrice,
-	IIF(max(Stock) = 0, 'Out of Stock', 
-		IIF(max(Stock) between 1 and 10, 'Low Stock', 'In Stock')
+select Category, 
+	sum(Price) as MaxPrice,
+	IIF(sum(Stock) = 0, 'Out of Stock', 
+		IIF(sum(Stock) between 1 and 10, 'Low Stock', 'In Stock')
 	) as InventoryStatus
 from products
 group by Category
