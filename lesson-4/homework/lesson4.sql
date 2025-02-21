@@ -90,12 +90,36 @@ insert into letters
 values ('a'), ('a'), ('a'), 
   ('b'), ('c'), ('d'), ('e'), ('f');
 
-
+/*
 select 
 	stuff(stuff(STRING_AGG(letter, '') within group (order by letter), 4, 1, null), 1, 0, 'b') as bfirst, -- b first
 	stuff(STRING_AGG(letter, '') within group (order by letter), 4, 1, '') + 'b' as blast, -- b last
 	stuff(stuff(STRING_AGG(letter, '') within group (order by letter), 4, 1, null), 3, 0, 'b') as bthird
-from letters
+from letters;
+*/
+-- bfirst
+select letter as bfirst
+from letters 
+order by (
+	case 
+		when letter = 'b' then 1
+		else 2
+	end
+)
+
+-- blast
+select letter as blast
+from letters 
+order by (
+	case 
+		when letter = 'b' then 2
+		else 1
+	end
+)
+
+-- bthird ?
+
+
 
 
 
