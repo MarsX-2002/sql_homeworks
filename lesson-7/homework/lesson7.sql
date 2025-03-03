@@ -131,6 +131,7 @@ from Customers c
 join Orders o on c.CustomerID = o.CustomerID
 join OrderDetails od on od.OrderID = o.OrderID
 join Products p on p.ProductID = od.ProductID
+where p.Category = 'Electronics'
 group by c.CustomerID, c.CustomerName
 having count(distinct p.Category) = 1
 
