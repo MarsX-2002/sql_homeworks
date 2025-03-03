@@ -41,7 +41,7 @@ order by salary desc
 select *,
 	dense_rank() over(order by salary desc) as SalaryRank
 from Employees
-order by SalaryRank
+order by Salary desc;
 
 /* Task 3. Identify the Top 2 Highest Salaries in Each Department */
 select *
@@ -56,15 +56,72 @@ where SalaryDepRank <= 2
 select *
 from
 (select *,
-	row_number() over(partition by department order by salary) as MinSalDep
+	dense_rank() over(partition by department order by salary) as MinSalDep
 from Employees) as RankedMinSalary
 where MinSalDep = 1
 order by Department
 
 /* Task 5. Calculate the Running Total of Salaries in Each Department */
 select *,
-	sum(Salary) over(partition by department order by employeeid rows between unbounded preceding and current row) as RunningTotal	
+	sum(Salary) over(partition by department order by employeeid) as RunningTotal	
 from Employees
+
+
+/* Task 6. Find the Total Salary of Each Department Without GROUP BY */
+select *,
+	sum(Salary) over(partition by department) as TotalSalaryDep
+from Employees
+
+
+/* Task 7. Calculate the Average Salary in Each Department Without GROUP BY */
+select *,
+	avg(Salary) over(partition by department) as AvgSalaryDep
+from Employees
+
+
+/* Task 8. Find the Difference Between an Employee’s Salary and Their Department’s Average */
+select *,
+	avg(Salary) over(partition by department) - Salary as SalaryDiff
+from Employees
+
+
+/* Task 9. Calculate the Moving Average Salary Over 3 Employees (Including Current, Previous, and Next) */
+select *,
+	avg(Salary) over(order by EmployeeID rows between 1 preceding and 1 following) as MovingAvg
+from Employees
+
+
+/* Task 10. Find the Sum of Salaries for the Last 3 Hired Employees */
+select *,
+	sum(Salary) over(order by HireDate desc rows between 2 preceding and current row) as SalaryLastThreeHired
+from Employees
+
+
+/* Task 11. Calculate the Running Average of Salaries Over All Previous Employees */
+select *,
+	avg(Salary) over(order by HireDate rows between unbounded preceding and current row) as RunningAvgPrev
+from Employees
+
+
+/* Task 12. Find the Maximum Salary Over a Sliding Window of 2 Employees Before and After */
+select *,
+	max(Salary) over(order by EmployeeID rows between 2 preceding and 2 following) as Max2Before2After
+from Employees
+
+
+/* Task 13. Determine the Percentage Contribution of Each Employee’s Salary to Their Department’s Total Salary */
+select *,
+	(100 * Salary) / sum(Salary) over(partition by department) as PercentageDep
+from Employees
+
+
+
+
+
+
+
+
+
 
 
 
