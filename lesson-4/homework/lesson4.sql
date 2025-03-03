@@ -22,7 +22,7 @@ select *
 from [dbo].[TestMultipleZero]
 where A <> 0 or B <> 0 or C <> 0 or D <> 0;
 
--- 2nd solution
+-- 2nd solution (window function?)
 select * 
 from [dbo].[TestMultipleZero] as t
 where (
@@ -54,6 +54,18 @@ select
 		from (values (Max1), (Max2), (Max3)) as MaxTempTable(YearMax))
 	as FinalMax
 from TestMax
+
+-- NEW: 2022 yilda qushilgan 
+select year1, greatest(max1, max2, max3) from TestMax;
+
+-- subquery
+select year1, max(max1) from
+(select year1, max1 from TestMax 
+union all
+select year1, max2 from TestMax
+union all
+select year1, max3 from TestMax) as newtable
+group by year1;
 
 /*+ Task 3 */
 /* date between May 7 and May 15 */
@@ -118,9 +130,53 @@ order by (
 )
 
 -- bthird ?
+-- ROW_NUMBER()
+
+CREATE TABLE Nobel_Prizes (
+    Year INT,
+    Subject VARCHAR(50),
+    Winner VARCHAR(100),
+    Country VARCHAR(50),
+    Category VARCHAR(50)
+);
+go
+INSERT INTO Nobel_Prizes (Year, Subject, Winner, Country, Category) VALUES
+(1970, 'Physics', 'Hannes Alfven', 'Sweden', 'Scientist'),
+(1970, 'Physics', 'Louis Neel', 'France', 'Scientist'),
+(1970, 'Chemistry', 'Luis Federico Leloir', 'France', 'Scientist'),
+(1970, 'Physiology', 'Ulf von Euler', 'Sweden', 'Scientist'),
+(1970, 'Physiology', 'Bernard Katz', 'Germany', 'Scientist'),
+(1970, 'Literature', 'Aleksandr Solzhenitsyn', 'Russia', 'Linguist'),
+(1970, 'Economics', 'Paul Samuelson', 'USA', 'Economist'),
+(1970, 'Physiology', 'Julius Axelrod', 'USA', 'Scientist'),
+(1971, 'Physics', 'Dennis Gabor', 'Hungary', 'Scientist');
 
 
 
+select *
+from Nobel_Prizes
+where year = 1970
+order by (case when subject in ('Chemistry', 'Economics') then 1 else 0 end), subject; 
+
+
+-- q2
+create table sales
+(
+	sales_id int primary key,
+	product_name varchar(50),
+	date_sold datetime
+);
+insert into sales values
+(1, 'appple', '2020'),
+(2, 'banana', '2020'),
+(3, 'banana', '2021')
+select * from sales;
+
+-- products sold only in year 2020
+select product_name, count(distinct year(date_sold))
+from sales
+group by product_name
+having count(distinct year(date_sold)) = 1 and year(date_sold) = 2020;
 
 
 
