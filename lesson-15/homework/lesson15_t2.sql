@@ -1,145 +1,158 @@
------------------------------
--- 1. Create sample table
------------------------------
+-- Drop the table if it exists
 DROP TABLE IF EXISTS items;
 GO
 
-CREATE TABLE items
-(
-	ID						varchar(10),
-	CurrentQuantity			int,
-	QuantityChange   		int,
-	ChangeType				varchar(10),
-	Change_datetime			datetime
+-- Create the items table
+CREATE TABLE items (
+    ID VARCHAR(10),
+    CurrentQuantity INT,
+    QuantityChange INT,
+    ChangeType VARCHAR(10),
+    change_datetime DATETIME
 );
 GO
 
+-- Insert sample data
 INSERT INTO items VALUES
-('A0013', 278,   99 ,   'out', '2020-05-25 00:25'), 
+('A0013', 278,   99 ,   'out', '2020-05-25 0:25'), 
 ('A0012', 377,   31 ,   'in',  '2020-05-24 22:00'),
 ('A0011', 346,   1  ,   'out', '2020-05-24 15:01'),
-('A0010', 347,   1  ,   'out', '2020-05-23 05:00'),
+('A0010', 347,   1  ,   'out', '2020-05-23 5:00'),
 ('A009',  348,   102,   'in',  '2020-04-25 18:00'),
-('A008',  246,   43 ,   'in',  '2020-04-25 02:00'),
-('A007',  203,   2  ,   'out', '2020-02-25 09:00'),
-('A006',  205,   129,   'out', '2020-02-18 07:00'),
-('A005',  334,   1  ,   'out', '2020-02-18 06:00'),
-('A004',  335,   27 ,   'out', '2020-01-29 05:00'),
-('A003',  362,   120,   'in',  '2019-12-31 02:00'),
-('A002',  242,   8  ,   'out', '2019-05-22 00:50'),
-('A001',  250,   250,   'in',  '2019-05-20 00:45');
-
-SELECT * FROM items;
+('A008',  246,   43 ,   'in',  '2020-04-25 2:00'),
+('A007',  203,   2  ,   'out', '2020-02-25 9:00'),
+('A006',  205,   129,   'out', '2020-02-18 7:00'),
+('A005',  334,   1  ,   'out', '2020-02-18 6:00'),
+('A004',  335,   27 ,   'out', '2020-01-29 5:00'),
+('A003',  362,   120,   'in',  '2019-12-31 2:00'),
+('A002',  242,   8  ,   'out', '2019-05-22 0:50'),
+('A001',  250,   250,   'in',  '2019-05-20 0:45');
 GO
 
-/*
-The logic:
-1. Process transactions in ascending order of Change_datetime.
-2. For an "in" transaction, add a new “lot” with its arrival date and quantity.
-3. For an "out" transaction, remove (FIFO) from the oldest lot(s) and record the quantity and its “age” (the number of days between the lot’s arrival date and the out transaction date).
-4. After processing all transactions, assign the remaining lots an age using the analysis date (here, the last change_datetime = 2020‑05‑25).
-5. Finally, group all allocated quantities (both from out transactions and remaining inventory) into 90‑day intervals.
-*/
+-- Declare variables for the latest date
+DECLARE @LatestDate DATETIME;
+SELECT @LatestDate = MAX(change_datetime) FROM items;
 
--------------------------------------------------------
--- 2. FIFO allocation, aging, and bucketing solution
--------------------------------------------------------
--- Table variable to hold “in” lots for FIFO processing
-DECLARE @FIFO TABLE (
-    LotID       int IDENTITY(1,1),
-    ArrivalDate datetime,
-    QtyRemaining int
+-- Table variable to track inventory batches
+DECLARE @InBatches TABLE (
+    BatchID INT IDENTITY(1,1) PRIMARY KEY,
+    InDate DATETIME,
+    OriginalQty INT,
+    RemainingQty INT
 );
 
--- Table variable to record the “age” for each allocation (whether items left or are still in inventory)
-DECLARE @Allocations TABLE (
-    Qty     int,
-    AgeDays int
+-- Table variable to track age bucket quantities
+DECLARE @AgeBuckets TABLE (
+    Bucket VARCHAR(50),
+    Quantity INT
 );
 
--- Cursor to process transactions in order
-DECLARE trans_cursor CURSOR FOR
-    SELECT ChangeType, QuantityChange, Change_datetime
+-- Process each event in chronological order
+DECLARE @ID VARCHAR(10), @CurrentQty INT, @QtyChange INT, @ChangeType VARCHAR(10), @ChangeDt DATETIME;
+DECLARE eventCursor CURSOR FOR 
+    SELECT ID, CurrentQuantity, QuantityChange, ChangeType, change_datetime
     FROM items
-    ORDER BY Change_datetime, (CASE WHEN ChangeType = 'in' THEN 0 ELSE 1 END);  
-    -- if transactions occur at the same time, process "in" before "out"
+    ORDER BY change_datetime;
 
-OPEN trans_cursor;
+OPEN eventCursor;
+FETCH NEXT FROM eventCursor INTO @ID, @CurrentQty, @QtyChange, @ChangeType, @ChangeDt;
 
-DECLARE @type varchar(10), @qty int, @TransDate datetime;
-
-WHILE 1 = 1
+WHILE @@FETCH_STATUS = 0
 BEGIN
-    FETCH NEXT FROM trans_cursor INTO @type, @qty, @TransDate;
-    IF @@FETCH_STATUS <> 0 
-        BREAK;
-
-    IF @type = 'in'
+    IF @ChangeType = 'in'
     BEGIN
-        -- For an "in" transaction, add a new lot
-        INSERT INTO @FIFO (ArrivalDate, QtyRemaining)
-        VALUES (@TransDate, @qty);
+        INSERT INTO @InBatches (InDate, OriginalQty, RemainingQty)
+        VALUES (@ChangeDt, @QtyChange, @QtyChange);
     END
-    ELSE IF @type = 'out'
+    ELSE IF @ChangeType = 'out'
     BEGIN
-        DECLARE @CurrentOutQty int = @qty;
-        
-        -- For an "out" transaction, remove from FIFO lots
-        WHILE @CurrentOutQty > 0
+        DECLARE @OutQtyRemaining INT = @QtyChange;
+        WHILE @OutQtyRemaining > 0
         BEGIN
-            DECLARE @LotID int, @LotArrival datetime, @LotQty int;
-            SELECT TOP 1 
-                   @LotID = LotID, 
-                   @LotArrival = ArrivalDate, 
-                   @LotQty = QtyRemaining
-            FROM @FIFO
-            ORDER BY ArrivalDate;
-            
-            IF @LotQty > @CurrentOutQty
+            DECLARE @BatchID INT, @InDate DATETIME, @Remaining INT;
+            SELECT TOP 1 @BatchID = BatchID, @InDate = InDate, @Remaining = RemainingQty
+            FROM @InBatches
+            ORDER BY BatchID;
+
+            IF @@ROWCOUNT = 0 BREAK;
+
+            DECLARE @Deduct INT = CASE WHEN @Remaining >= @OutQtyRemaining THEN @OutQtyRemaining ELSE @Remaining END;
+            DECLARE @Days INT = DATEDIFF(DAY, @InDate, @ChangeDt);
+            DECLARE @Bucket VARCHAR(50);
+
+            SET @Bucket = CASE 
+                WHEN @Days BETWEEN 1 AND 90 THEN '1-90'
+                WHEN @Days BETWEEN 91 AND 180 THEN '91-180'
+                WHEN @Days BETWEEN 181 AND 270 THEN '181-270'
+                WHEN @Days BETWEEN 271 AND 360 THEN '271-360'
+                WHEN @Days >= 361 THEN '361-450'
+                ELSE '0'
+            END;
+
+            IF @Bucket != '0'
             BEGIN
-                -- Allocate part of this lot
-                INSERT INTO @Allocations (Qty, AgeDays)
-                VALUES (@CurrentOutQty, DATEDIFF(day, @LotArrival, @TransDate));
-                
-                UPDATE @FIFO 
-                SET QtyRemaining = QtyRemaining - @CurrentOutQty
-                WHERE LotID = @LotID;
-                
-                SET @CurrentOutQty = 0;
+                IF EXISTS (SELECT 1 FROM @AgeBuckets WHERE Bucket = @Bucket)
+                    UPDATE @AgeBuckets SET Quantity += @Deduct WHERE Bucket = @Bucket;
+                ELSE
+                    INSERT INTO @AgeBuckets (Bucket, Quantity) VALUES (@Bucket, @Deduct);
             END
-            ELSE
-            BEGIN
-                -- Allocate the whole lot and remove it
-                INSERT INTO @Allocations (Qty, AgeDays)
-                VALUES (@LotQty, DATEDIFF(day, @LotArrival, @TransDate));
-                
-                SET @CurrentOutQty = @CurrentOutQty - @LotQty;
-                
-                DELETE FROM @FIFO WHERE LotID = @LotID;
-            END
+
+            UPDATE @InBatches SET RemainingQty -= @Deduct WHERE BatchID = @BatchID;
+            IF (SELECT RemainingQty FROM @InBatches WHERE BatchID = @BatchID) = 0
+                DELETE FROM @InBatches WHERE BatchID = @BatchID;
+
+            SET @OutQtyRemaining -= @Deduct;
         END
     END
+
+    FETCH NEXT FROM eventCursor INTO @ID, @CurrentQty, @QtyChange, @ChangeType, @ChangeDt;
 END
 
-CLOSE trans_cursor;
-DEALLOCATE trans_cursor;
+CLOSE eventCursor;
+DEALLOCATE eventCursor;
 
--- Determine the analysis date (use the latest transaction date)
-DECLARE @AnalysisDate datetime;
-SELECT @AnalysisDate = MAX(Change_datetime) FROM items;
+-- Process remaining batches
+DECLARE remainingCursor CURSOR FOR 
+    SELECT InDate, RemainingQty FROM @InBatches;
+OPEN remainingCursor;
 
--- For each remaining lot (i.e. inventory still in the warehouse), record an allocation using the analysis date
-INSERT INTO @Allocations (Qty, AgeDays)
-SELECT QtyRemaining, DATEDIFF(day, ArrivalDate, @AnalysisDate)
-FROM @FIFO;
+FETCH NEXT FROM remainingCursor INTO @InDate, @QtyChange;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    DECLARE @DaysRem INT = DATEDIFF(DAY, @InDate, @LatestDate);
+    DECLARE @RemBucket VARCHAR(50) = CASE 
+        WHEN @DaysRem BETWEEN 0 AND 90 THEN '1-90'
+        WHEN @DaysRem BETWEEN 91 AND 180 THEN '91-180'
+        WHEN @DaysRem BETWEEN 181 AND 270 THEN '181-270'
+        WHEN @DaysRem BETWEEN 271 AND 360 THEN '271-360'
+        WHEN @DaysRem >= 361 THEN '361-450'
+        ELSE '0'
+    END;
 
--- Finally, aggregate the allocations into 90‑day age buckets.
--- (Note: the buckets are: 1-90, 91-180, 181-270, 271-360, 361-450)
-SELECT
-    SUM(CASE WHEN AgeDays BETWEEN 1   AND 90  THEN Qty ELSE 0 END) AS [1-90 days old],
-    SUM(CASE WHEN AgeDays BETWEEN 91  AND 180 THEN Qty ELSE 0 END) AS [91-180 days old],
-    SUM(CASE WHEN AgeDays BETWEEN 181 AND 270 THEN Qty ELSE 0 END) AS [181-270 days old],
-    SUM(CASE WHEN AgeDays BETWEEN 271 AND 360 THEN Qty ELSE 0 END) AS [271-360 days old],
-    SUM(CASE WHEN AgeDays BETWEEN 361 AND 450 THEN Qty ELSE 0 END) AS [361-450 days old]
-FROM @Allocations;
-GO
+    IF @RemBucket != '0'
+    BEGIN
+        IF EXISTS (SELECT 1 FROM @AgeBuckets WHERE Bucket = @RemBucket)
+            UPDATE @AgeBuckets SET Quantity += @QtyChange WHERE Bucket = @RemBucket;
+        ELSE
+            INSERT INTO @AgeBuckets (Bucket, Quantity) VALUES (@RemBucket, @QtyChange);
+    END
+
+    FETCH NEXT FROM remainingCursor INTO @InDate, @QtyChange;
+END
+
+CLOSE remainingCursor;
+DEALLOCATE remainingCursor;
+
+-- Pivot the results into the desired format
+SELECT 
+    ISNULL([1-90], 0) AS [1-90 days old],
+    ISNULL([91-180], 0) AS [91-180 days old],
+    ISNULL([181-270], 0) AS [181-270 days old],
+    ISNULL([271-360], 0) AS [271-360 days old],
+    ISNULL([361-450], 0) AS [361-450 days old]
+FROM (
+    SELECT Bucket, Quantity FROM @AgeBuckets
+) AS SourceTable
+PIVOT (
+    SUM(Quantity) FOR Bucket IN ([1-90], [91-180], [181-270], [271-360], [361-450])
+) AS PivotTable;
